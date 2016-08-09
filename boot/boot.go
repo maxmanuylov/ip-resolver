@@ -1,8 +1,9 @@
-package boot
+package ip_resolver
 
 import (
     "flag"
     "fmt"
+    "github.com/maxmanuylov/utils/application"
     "io/ioutil"
     "net"
     "os"
@@ -26,10 +27,27 @@ func Run() {
         os.Exit(255)
     }
 
-    conn, err := net.DialTimeout(*network, *address, time.Duration(*timeout) * time.Second)
+    ip, err := ResolveLocalIP(*network, *address, time.Duration(*timeout) * time.Second)
     if err != nil {
-        fmt.Fprintf(os.Stderr, "Connection failed: %s\n", err.Error())
-        os.Exit(255)
+        application.Exit(err.Error())
+    }
+
+    if *file == "" {
+        fmt.Fprintf(os.Stdout, "%s", ip)
+    } else {
+        if err := os.MkdirAll(filepath.Dir(*file), os.FileMode(0777)); err != nil {
+            application.Exit(fmt.Sprintf("Failed to create parent directory: %v", err))
+        }
+        if err := ioutil.WriteFile(*file, []byte(fmt.Sprintf("%s=%s", *varName, ip)), os.FileMode(0666)); err != nil {
+            application.Exit(fmt.Sprintf("Failed to save file: %v", err))
+        }
+    }
+}
+
+func ResolveLocalIP(network, address string, timeout time.Duration) (string, error) {
+    conn, err := net.DialTimeout(network, address, timeout)
+    if err != nil {
+        return "", fmt.Errorf("Connection failed: %v", err)
     }
 
     defer conn.Close()
@@ -37,20 +55,8 @@ func Run() {
     localAddress := conn.LocalAddr().String()
     ip, _, err := net.SplitHostPort(localAddress)
     if err != nil {
-        fmt.Fprintf(os.Stderr, "Failed to parse local address (%s): %s\n", localAddress, err.Error())
-        os.Exit(255)
+        return "", fmt.Errorf("Failed to parse local address (%s): %v", localAddress, err)
     }
 
-    if *file == "" {
-        fmt.Fprintf(os.Stdout, "%s", ip)
-    } else {
-        if err := os.MkdirAll(filepath.Dir(*file), os.FileMode(0777)); err != nil {
-            fmt.Fprintf(os.Stderr, "Failed to create parent directory: %s\n", err.Error())
-            os.Exit(255)
-        }
-        if err := ioutil.WriteFile(*file, []byte(fmt.Sprintf("%s=%s", *varName, ip)), os.FileMode(0666)); err != nil {
-            fmt.Fprintf(os.Stderr, "Failed to save file: %s\n", err.Error())
-            os.Exit(255)
-        }
-    }
+    return ip, nil
 }
